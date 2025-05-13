@@ -1,13 +1,16 @@
-#include <ncurses.h> 
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_image.h>
+#include <stdbool.h>
 #include <stdlib.h> 
+#include <stdio.h>
 
 #define WIDTH 40 
 #define HEIGHT 20 
-#define PACMAN 'C' 
+#define PACMAN 'S' 
 #define WALL '#' 
 #define FOOD '.' 
 #define EMPTY ' ' 
-#define DEMON 'X'
+#define DEMON 'N'
 
 int res = 0; //rezultat joc(0=continui, 1=pierdut, 2=castigat)
 int score = 0; //scor
@@ -15,6 +18,37 @@ int pacman_x, pacman_y; //pozitia
 char board[HEIGHT][WIDTH]; //harta 2D
 int food = 0; //mancarea totala generata
 int curr = 0; //mancarea adunata
+
+SDL_Window* window = NULL;
+SDL_Renderer* renderer = NULL;
+SDL_Texture* textures[7];
+
+int load_textures() {
+    const char* files[7] = {
+        "grass.png",
+        "stone.png",
+        "ball.png",
+        "ninja1.png",
+        "samurai1.png",
+        "samura2.png",
+        "ninja2.png"
+    };
+
+    for (int i = 0; i < 7; i++) {
+        SDL_Surface* surface = IMG_Load(files[i]);
+        if (!surface) {
+            printf("Failed to load %s: %s\n", files[i], IMG_GetError());
+            return 0;
+        }
+        textures[i] = SDL_CreateTextureFromSurface(renderer, surface);
+        SDL_FreeSurface(surface);
+        if (!textures[i]) {
+            printf("Failed to create texture from %s: %s\n", files[i], SDL_GetError());
+            return 0;
+        }
+    }
+    return 1;
+}
 
 //initializarea hartii
 void initialize() {
@@ -75,14 +109,38 @@ void initialize() {
 }
 //desenez harta
 void draw() {
-    clear();  //sterge tot
-    for (int i = 0; i < HEIGHT; i++) {
-        for (int j = 0; j < WIDTH; j++) {
-            mvaddch(i, j, board[i][j]);  //afiseaza fiecare caracter
-        }
-    }
 
-    mvprintw(HEIGHT, 0, "Score: %d", score);  //scor sub harta
+        SDL_RenderClear(renderer);
+        SDL_Texture* samurai=(frame%2==0) ? textures[3]: textures[5];
+        SDL_Texture* ninja=(frame%2==0) ? textures[4]: textures[6];
+
+        for(int i=0; i<HEIGHT; i++)
+        {
+            for(int j=0; j<WIDTH; j++)
+            {
+                SDL_Rect dest={j*32, i*32, 32, 32};
+                switch(board[i][j])
+                {
+                    case WALL:
+                    SDL_RenderCopy(renderer, textures[1], NULL, &dest); break;
+
+                    case EMPTY:
+                    SDL_RenderCopy(renderer, textures[0], NULL, &dest); break;
+
+                    case FOOD:
+                    SDL_RenderCopy(renderer, textures[2], NULL, &dest); break;
+
+                    case PACMAN:
+                    SDL_RenderCopy(renderer, samurai, NULL, &dest); break;
+
+                    case DEMON:
+                    SDL_RenderCopy(renderer, ninja, NULL, &dest); break;
+                }
+            }
+        }
+
+        SDL_RenderPresent(renderer);
+        frame++;
 }
 //functie de mutare pacman
 void move_pacman(int move_x, int move_y) {
@@ -109,59 +167,109 @@ void move_pacman(int move_x, int move_y) {
     }
 }
 
-int main() {
-    //aici am folosit functii din ncurses
-    initscr(); //initializeaza fereastra ncurses
-    noecho(); //nu afisa tastele
-    cbreak(); //input fara enter
-    curs_set(0); //ascunde cursorul
-    keypad(stdscr, TRUE); //activeaza tastele sageti
-    nodelay(stdscr, TRUE); 
+void process_input(){
+    SDL_Event event;
+    while(SDL_PollEvent(&event))
+    {
+        if(event.type==SDL_QUIT)
+        {
+            res=1;
 
-    initialize(); //jocul
-
-    mvprintw(HEIGHT + 3, 0, "Use W A S D to move. Press Q to quit.");
-    mvprintw(HEIGHT + 4, 0, "Press Y to start...");
-    refresh();
-
-    int ch;
-    while ((ch = getch()) != 'y' && ch != 'Y') {
-        napms(100); //pauza
+        }
+        else if(event.type==SDL_KEYDOWN)
+        {
+            switch (event.key.keysym.sym)
+            {
+                case SDLK_w: move_pacman(0,-1); break;
+                case SDLK_s: move_pacman(0,1); break; 
+                case SDLK_a: move_pacman(-1,0); break;
+                case SDLK_d: move_pacman(1,0); break;
+                case SDLK_q: res=1; break;
+            }
+        }
     }
-
-    while (1) {
+}
+int frame=0;
+int main(int argc, char* argv[])
+{
+    if (SDL_Init(SDL_INIT_VIDEO)!=0)
+    {
+        printf("SDL_Init Error: %s\n", SDL_GetError());
+        return 1;
+    }
+    if(!(IMG_Init(IMG_INIT_PNG) & IMG_INIT_PNG))
+    {
+        printf("IMG_Init Error: %s\n", IMG_GetError());
+        SDL_Quit();
+        return 1;
+    }
+    window=SDL_CreateWindow("Pac-Man SDL2", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WIDTH*32, HEIGHT*32, SDL_WINDOW_SHOWN);
+    if(!window){
+        printf("SDL_CreateWindow Error: %s\n", SDL_GetError());
+        IMG_Quit();
+        SDL_Quit();
+        return 1;
+    }
+    renderer=SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    if(!renderer)
+    {
+        printf("SDL_CreateRenderer Error: %s\n", SDL_GetError());
+        SDL_DestroyWindow(window);
+        IMG_Quit();
+        SDL_Quit();
+        return 1;
+    }
+    if(!load_textures())
+    {
+        prinft("Failed to load textures.\n");
+        SDL_DestroyRenderer(renderer);
+        SDL_DestroyWindow(window);
+        IMG_Quit();
+        SDL_Quit();
+        return 1;
+    }
+    initialize();
+    int running=1;
+    while(running && !res){
+        process_inout();
         draw();
+        SDL_Delay(100);
+    }
+    SDL_Delay(500);
+    SDL_SetRenderDrawColor(renderer,0,0,0,255);
+    SDL_RenderClear(renderer);
 
-        if (res == 1) {
-            clear();
-            mvprintw(HEIGHT / 2, (WIDTH - 20) / 2, "Game Over! Eaten by demon!");
-            mvprintw(HEIGHT / 2 + 1, (WIDTH - 20) / 2, "Final Score: %d", score);
-            refresh();
-            napms(3000);
-            break;
-        }
+    SDL_Surface* msgSurface;
+    SDL_Texture* msgTexture;
+    SDL_Color white={255, 255, 255, 255};
 
-        if (res == 2) {
-            clear();
-            mvprintw(HEIGHT / 2, (WIDTH - 10) / 2, "You Win!");
-            mvprintw(HEIGHT / 2 + 1, (WIDTH - 20) / 2, "Final Score: %d", score);
-            refresh();
-            napms(3000);
-            break;
-        }
+    if(res==1)
+    {
+        printf("Game Over! Eaten by a ninja.\n");
+        printf("Final Score: %d\n", score);
 
-        ch = getch();
-        switch (ch) {
-            case 'w': move_pacman(0, -1); break;
-            case 's': move_pacman(0, 1); break;
-            case 'a': move_pacman(-1, 0); break;
-            case 'd': move_pacman(1, 0); break;
-            case 'q': endwin(); return 0;
-        }
-
-        napms(100); //intarziere intre pasi
+    }
+    else if(res==2)
+    {
+        printf("You Win!\n");
+        printf("Final Score: %d\n", score);
     }
 
-    endwin(); //opresc ncurses
+    SDL_RenderPresent(renderer);
+    SDL_Delay(3000);
+
+    for(int i=0; i<5; i++)
+    {
+        if(textures[i])
+        {
+            SDL_DestroyTexture(textures[i]);
+        }
+    }
+
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    IMG_Quit();
+    SDL_Quit();
+    
     return 0;
 }
